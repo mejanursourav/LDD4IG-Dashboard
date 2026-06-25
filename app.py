@@ -18,7 +18,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for Header (similar to bs_theme in Shiny)
+# Custom CSS for Header
 st.markdown("""
     <style>
     .main-header {
@@ -91,7 +91,7 @@ def load_excel_data(file_path="quality.xlsx"):
 # =========================================================================
 # 2. SERVER LOGIC & DIRECT API FETCH (Cached with TTL for 1 hour)
 # =========================================================================
-@st.cache_data(ttl=3600)  # Equivalent to invalidateLater(3600000)
+@st.cache_data(ttl=3600)  
 def fetch_live_data():
     excel_df, upazila_dict = load_excel_data()
     
@@ -178,14 +178,10 @@ def fetch_live_data():
     final_data["Date_Parsed"] = final_data["Date_Raw"].apply(parse_date)
     final_data["Date"] = final_data["Date_Parsed"].combine_first(pd.to_datetime(final_data["Fallback_Date"], errors='coerce'))
     
-    # Status Mapping (Fixed for pandas/numpy compatibility)
-    final_data["Status"] = "ভুল"  # Default everything to 'ভুল'
-    
-    # If 'সব তথ্য ঠিক আছে' is found, mark it as 'সঠিক'
+    # Status Mapping 
+    final_data["Status"] = "ভুল"  
     is_correct = final_data["Check_Result"].str.contains("সব তথ্য ঠিক আছে", na=False)
     final_data.loc[is_correct, "Status"] = "সঠিক"
-    
-    # If the result is missing or blank, mark it as missing (NaN)
     is_blank = final_data["Check_Result"].isna() | (final_data["Check_Result"] == "")
     final_data.loc[is_blank, "Status"] = np.nan
     
@@ -208,9 +204,9 @@ min_date = datetime(2026, 6, 1).date()
 max_date = datetime.now().date()
 date_range = st.sidebar.date_input("র‍্যান্ডম চেকের তারিখ (Date)", [min_date, max_date], min_value=min_date, max_value=max_date)
 
-if len(date_range) == 2:
+if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
     start_date, end_date = date_range
-    filtered_df = df[(df["Date"].dt.date >= start_date) & (df["Date"].dt.date <= end_date)]
+    filtered_df = df[(df["Date"].dt.date >= start_date) & (df["Date"].dt.date <= end_date)].copy()
 else:
     filtered_df = df.copy()
 
@@ -235,6 +231,9 @@ if selected_office != "All":
 st.sidebar.markdown("---")
 st.sidebar.markdown("<p style='color: #7f8c8d; font-size: 12px; text-align: center;'>🔄 Live API Sync Active: Auto-updates every 1 hour.</p>", unsafe_allow_html=True)
 st.sidebar.markdown(f"<div style='color: #27ae60; font-size: 11px; text-align: center; font-weight: bold; margin-top: -10px;'>Last Fetched: {last_sync_time}</div>", unsafe_allow_html=True)
+
+# Helper indicator columns for simplified aggregations
+filtered_df["Is_Error"] = (filtered_df["Status"] == "ভুল").astype(int)
 
 # =========================================================================
 # 4. KPIs
@@ -268,13 +267,12 @@ def color_error_rows(val):
 
 with tab1: # ULO-Wise
     if not filtered_df.empty:
-        df_ulo = filtered_df.groupby(["Upazila", "Office"]).apply(
-            lambda x: pd.Series({
-                "মোট যাচাই": len(x),
-                "মোট ভুল": (x["Status"] == "ভুল").sum()
-            }),
-            include_groups=False
+        df_ulo = filtered_df.groupby(["Upazila", "Office"]).agg(
+            মোট_যাচাই=('Status', 'count'),
+            মোট_ভুল=('Is_Error', 'sum')
         ).reset_index()
+        
+        df_ulo.rename(columns={"মোট_যাচাই": "মোট যাচাই", "মোট_ভুল": "মোট ভুল"}, inplace=True)
         df_ulo["সব তথ্য ঠিক আছে"] = df_ulo["মোট যাচাই"] - df_ulo["মোট ভুল"]
         df_ulo["শতকরা ভুল (%)"] = round((df_ulo["মোট ভুল"] / df_ulo["মোট যাচাই"]) * 100, 2)
         df_ulo.rename(columns={"Upazila": "উপজেলা (Upazila)", "Office": "ULO"}, inplace=True)
@@ -283,13 +281,12 @@ with tab1: # ULO-Wise
 
 with tab2: # DEO-Wise
     if not filtered_df.empty:
-        df_deo = filtered_df.groupby(["Upazila", "Office", "User"]).apply(
-            lambda x: pd.Series({
-                "মোট যাচাই": len(x),
-                "মোট ভুল": (x["Status"] == "ভুল").sum()
-            }),
-            include_groups=False
+        df_deo = filtered_df.groupby(["Upazila", "Office", "User"]).agg(
+            মোট_যাচাই=('Status', 'count'),
+            মোট_ভুল=('Is_Error', 'sum')
         ).reset_index()
+        
+        df_deo.rename(columns={"মোট_যাচাই": "মোট যাচাই", "মোট_ভুল": "মোট ভুল"}, inplace=True)
         df_deo = df_deo[df_deo["মোট যাচাই"] >= 10]
         df_deo["সব তথ্য ঠিক আছে"] = df_deo["মোট যাচাই"] - df_deo["মোট ভুল"]
         df_deo["শতকরা ভুল (%)"] = round((df_deo["মোট ভুল"] / df_deo["মোট যাচাই"]) * 100, 2)
@@ -299,13 +296,12 @@ with tab2: # DEO-Wise
 
 with tab3: # Checker-Wise
     if not filtered_df.empty:
-        df_checker = filtered_df.groupby(["Upazila", "Office", "Checker"]).apply(
-            lambda x: pd.Series({
-                "মোট যাচাই": len(x),
-                "মোট ভুল": (x["Status"] == "ভুল").sum()
-            }),
-            include_groups=False
+        df_checker = filtered_df.groupby(["Upazila", "Office", "Checker"]).agg(
+            মোট_যাচাই=('Status', 'count'),
+            মোট_ভুল=('Is_Error', 'sum')
         ).reset_index()
+        
+        df_checker.rename(columns={"মোট_যাচাই": "মোট যাচাই", "মোট_ভুল": "মোট ভুল"}, inplace=True)
         df_checker["সব তথ্য ঠিক আছে"] = df_checker["মোট যাচাই"] - df_checker["মোট ভুল"]
         df_checker["শতকরা ভুল (%)"] = round((df_checker["মোট ভুল"] / df_checker["মোট যাচাই"]) * 100, 2)
         df_checker.rename(columns={"Upazila": "উপজেলা (Upazila)", "Office": "ULO", "Checker": "Random Checker"}, inplace=True)
@@ -330,10 +326,11 @@ with tab4: # Day-wise Overall
 
 with tab5: # District Day-wise
     if not filtered_df.empty:
-        df_dist = filtered_df.groupby(["Date", "District"]).apply(
-            lambda x: pd.Series({"Total": len(x), "Errors": (x["Status"] == "ভুল").sum()}),
-            include_groups=False
+        df_dist = filtered_df.groupby(["Date", "District"]).agg(
+            Total=('Status', 'count'),
+            Errors=('Is_Error', 'sum')
         ).reset_index()
+        
         df_dist["Error_Pct"] = round((df_dist["Errors"] / df_dist["Total"]) * 100, 2)
         
         fig2 = px.line(df_dist, x="Date", y="Error_Pct", color="District", markers=True,
@@ -344,10 +341,11 @@ with tab5: # District Day-wise
 
 with tab6: # DEO Error Quartiles
     if not filtered_df.empty:
-        deo_stats = filtered_df.groupby(["District", "User"]).apply(
-            lambda x: pd.Series({"Total": len(x), "Errors": (x["Status"] == "ভুল").sum()}),
-            include_groups=False
+        deo_stats = filtered_df.groupby(["District", "User"]).agg(
+            Total=('Status', 'count'),
+            Errors=('Is_Error', 'sum')
         ).reset_index()
+        
         deo_stats = deo_stats[deo_stats["Total"] >= 10]
         
         if not deo_stats.empty:
