@@ -91,7 +91,7 @@ def load_excel_data(file_path="quality.xlsx"):
 # =========================================================================
 # 2. SERVER LOGIC & DIRECT API FETCH (Cached with TTL for 1 hour)
 # =========================================================================
-@st.cache_data(ttl=3600)  # Equivalient to invalidateLater(3600000)
+@st.cache_data(ttl=3600)  # Equivalent to invalidateLater(3600000)
 def fetch_live_data():
     excel_df, upazila_dict = load_excel_data()
     
@@ -178,13 +178,16 @@ def fetch_live_data():
     final_data["Date_Parsed"] = final_data["Date_Raw"].apply(parse_date)
     final_data["Date"] = final_data["Date_Parsed"].combine_first(pd.to_datetime(final_data["Fallback_Date"], errors='coerce'))
     
-    # Status Mapping
-    conditions = [
-        final_data["Check_Result"].isna() | (final_data["Check_Result"] == ""),
-        final_data["Check_Result"].str.contains("সব তথ্য ঠিক আছে", na=False)
-    ]
-    choices = [np.nan, "সঠিক"]
-    final_data["Status"] = np.select(conditions, choices, default="ভুল")
+    # Status Mapping (Fixed for pandas/numpy compatibility)
+    final_data["Status"] = "ভুল"  # Default everything to 'ভুল'
+    
+    # If 'সব তথ্য ঠিক আছে' is found, mark it as 'সঠিক'
+    is_correct = final_data["Check_Result"].str.contains("সব তথ্য ঠিক আছে", na=False)
+    final_data.loc[is_correct, "Status"] = "সঠিক"
+    
+    # If the result is missing or blank, mark it as missing (NaN)
+    is_blank = final_data["Check_Result"].isna() | (final_data["Check_Result"] == "")
+    final_data.loc[is_blank, "Status"] = np.nan
     
     final_data = final_data.dropna(subset=["Status", "Date"]).drop_duplicates()
     
@@ -269,7 +272,8 @@ with tab1: # ULO-Wise
             lambda x: pd.Series({
                 "মোট যাচাই": len(x),
                 "মোট ভুল": (x["Status"] == "ভুল").sum()
-            })
+            }),
+            include_groups=False
         ).reset_index()
         df_ulo["সব তথ্য ঠিক আছে"] = df_ulo["মোট যাচাই"] - df_ulo["মোট ভুল"]
         df_ulo["শতকরা ভুল (%)"] = round((df_ulo["মোট ভুল"] / df_ulo["মোট যাচাই"]) * 100, 2)
@@ -283,7 +287,8 @@ with tab2: # DEO-Wise
             lambda x: pd.Series({
                 "মোট যাচাই": len(x),
                 "মোট ভুল": (x["Status"] == "ভুল").sum()
-            })
+            }),
+            include_groups=False
         ).reset_index()
         df_deo = df_deo[df_deo["মোট যাচাই"] >= 10]
         df_deo["সব তথ্য ঠিক আছে"] = df_deo["মোট যাচাই"] - df_deo["মোট ভুল"]
@@ -298,7 +303,8 @@ with tab3: # Checker-Wise
             lambda x: pd.Series({
                 "মোট যাচাই": len(x),
                 "মোট ভুল": (x["Status"] == "ভুল").sum()
-            })
+            }),
+            include_groups=False
         ).reset_index()
         df_checker["সব তথ্য ঠিক আছে"] = df_checker["মোট যাচাই"] - df_checker["মোট ভুল"]
         df_checker["শতকরা ভুল (%)"] = round((df_checker["মোট ভুল"] / df_checker["মোট যাচাই"]) * 100, 2)
@@ -325,7 +331,8 @@ with tab4: # Day-wise Overall
 with tab5: # District Day-wise
     if not filtered_df.empty:
         df_dist = filtered_df.groupby(["Date", "District"]).apply(
-            lambda x: pd.Series({"Total": len(x), "Errors": (x["Status"] == "ভুল").sum()})
+            lambda x: pd.Series({"Total": len(x), "Errors": (x["Status"] == "ভুল").sum()}),
+            include_groups=False
         ).reset_index()
         df_dist["Error_Pct"] = round((df_dist["Errors"] / df_dist["Total"]) * 100, 2)
         
@@ -338,7 +345,8 @@ with tab5: # District Day-wise
 with tab6: # DEO Error Quartiles
     if not filtered_df.empty:
         deo_stats = filtered_df.groupby(["District", "User"]).apply(
-            lambda x: pd.Series({"Total": len(x), "Errors": (x["Status"] == "ভুল").sum()})
+            lambda x: pd.Series({"Total": len(x), "Errors": (x["Status"] == "ভুল").sum()}),
+            include_groups=False
         ).reset_index()
         deo_stats = deo_stats[deo_stats["Total"] >= 10]
         
