@@ -40,14 +40,24 @@ st.markdown("""
 
 
 # =========================================================================
-# 1. GLOBAL DATA: READ EXCEL
+# 1. GLOBAL DATA: READ EXCEL OR CSV
 # =========================================================================
 @st.cache_data
 def load_excel_data(file_path="quality.xlsx"):
+    df = pd.DataFrame()
+    
+    # Attempt 1: Try reading as a true Excel file
     try:
         df = pd.read_excel(file_path, dtype=str)
-    except FileNotFoundError:
-        df = pd.DataFrame()
+    except Exception:
+        pass # If it fails, move to attempt 2
+        
+    # Attempt 2: Try reading as a CSV (in case it's a CSV disguised with an .xlsx extension)
+    if df.empty:
+        try:
+            df = pd.read_csv(file_path, dtype=str)
+        except Exception:
+            pass
 
     if df.empty:
         return df, pd.DataFrame(columns=["Upazila", "Known_District"])
@@ -156,11 +166,10 @@ def fetch_live_data():
 
     final_data["Check_Result"] = final_data["Check_Result"].str.strip()
     
-    # Bulletproof Date Parsing for Excel
+    # Bulletproof Date Parsing
     def parse_date(d_str):
         if pd.isna(d_str) or str(d_str).strip() in ["", "nan", "NaT", "None"]: return pd.NaT
         d_str = str(d_str).strip()
-        # Handle Excel serial numbers (e.g. 45000)
         if re.match(r"^\d{5}(\.\d+)?$", d_str):
             try: return pd.to_datetime("1899-12-30") + pd.to_timedelta(float(d_str), unit="D")
             except: pass
@@ -178,7 +187,6 @@ def fetch_live_data():
     is_blank = final_data["Check_Result"].isna() | (final_data["Check_Result"] == "")
     final_data.loc[is_blank, "Status"] = np.nan
     
-    # Track drops for debugging UI
     total_before = len(final_data)
     final_data = final_data.dropna(subset=["Status", "Date"]).drop_duplicates()
     dropped_rows = total_before - len(final_data)
@@ -195,7 +203,6 @@ df, last_sync_time, excel_count, dropped_count = fetch_live_data()
 # =========================================================================
 st.sidebar.title("Filter")
 
-# DYNAMIC DATE CALENDAR (Scans your data to find the true min/max dates)
 if not df.empty and pd.notna(df["Date"].min()):
     min_date = df["Date"].min().date()
     max_date = df["Date"].max().date()
@@ -240,9 +247,8 @@ st.sidebar.markdown(f"<div style='color: #27ae60; font-size: 11px; text-align: c
 
 # --- DIAGNOSTIC PANEL ---
 st.sidebar.markdown("---")
-st.sidebar.info(f"📁 **Excel Check:** {excel_count} rows found.\n🧹 **Data Dropped:** {dropped_count} rows missing Date/Status.")
+st.sidebar.info(f"📁 **Local Data Check:** {excel_count} rows found.\n🧹 **Data Dropped:** {dropped_count} rows missing Date/Status.")
 
-# Helper indicator columns for simplified aggregations
 filtered_df["Is_Error"] = (filtered_df["Status"] == "ভুল").astype(int)
 
 # =========================================================================
