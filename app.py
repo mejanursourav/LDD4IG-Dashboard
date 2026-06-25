@@ -181,6 +181,10 @@ def fetch_live_data():
     # Status Mapping 
     final_data["Status"] = "ভুল"  
     is_correct = final_data["Check_Result"].str.contains("সব তথ্য ঠিক আছে", na=False)
+    # --- DEBUGGING CHECK ---
+raw_excel, _ = load_excel_data()
+st.sidebar.warning(f"📊 Excel Rows Found: {len(raw_excel)}")
+# -----------------------
     final_data.loc[is_correct, "Status"] = "সঠিক"
     is_blank = final_data["Check_Result"].isna() | (final_data["Check_Result"] == "")
     final_data.loc[is_blank, "Status"] = np.nan
